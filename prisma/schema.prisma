@@ -7,8 +7,28 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-model Todo {
-  id        Int      @id @default(autoincrement())
-  title     String
-  createdAt DateTime  @default(now())
+model Task {
+  id           Int      @id @default(autoincrement())
+  title        String
+  durationDays Int      @default(1)
+  dueDate      String?
+  imageUrl     String?
+  createdAt    DateTime @default(now())
+
+  // Tasks that this task depends on (via join table)
+  dependsOn    TaskDependency[] @relation("dependsOn")
+
+  // Tasks depending on this task (via join table)
+  dependedOnBy TaskDependency[] @relation("dependedOnBy")
+}
+
+model TaskDependency {
+  id          Int  @id @default(autoincrement())
+  taskId      Int
+  dependsOnId Int
+
+  task       Task @relation("dependedOnBy", fields: [taskId], references: [id])
+  dependsOn  Task @relation("dependsOn", fields: [dependsOnId], references: [id])
+
+  @@unique([taskId, dependsOnId])
 }
