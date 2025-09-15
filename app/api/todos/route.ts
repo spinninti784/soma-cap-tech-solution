@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { hasCycle } from '@/lib/graphUtils';
 import type { Task } from '@/lib/types';
-import type { Todo } from '@/lib/types';
 
 export async function GET() {
   try {
@@ -69,7 +68,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Fetch image from pexels API (optional)
+    // Fetch image from pexels API
     let imageUrl = null;
     try {
       const response = await fetch(

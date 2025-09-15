@@ -6,6 +6,7 @@ import { Graph } from "@visx/network";
 const nodeRadius = 28;
 const nodeGapX = 180;
 const nodeGapY = 90;
+const layerOffsetX = 120; // horizontal shift per layer
 const canvasPaddingLeft = 60;
 const canvasPaddingTop = 60;
 const background = "#f9fafb";
@@ -120,19 +121,13 @@ function computeUpwardLayers(tasks: Task[]): Map<number, Task[]> {
   return layerGroups;
 }
 
-// New function to compute critical path by level
 function computeCriticalPath(tasks: Task[]): Set<number> {
   const layers = computeUpwardLayers(tasks);
   const criticalPath = new Set<number>();
   let previousCriticalTaskIds: number[] = [];
-
-  // Sort layers ascending: leaves at 0, roots at max
   const sortedLayers = Array.from(layers.entries()).sort(([a], [b]) => a - b);
-
   for (const [level, tasksAtLevel] of sortedLayers) {
-    // If first level, pick all tasks as critical (nothing above)
     if (level === 0) {
-      // Pick task with max earliest start date
       let maxES = new Date(0);
       let criticalTaskId: number | null = null;
       for (const task of tasksAtLevel) {
@@ -145,16 +140,12 @@ function computeCriticalPath(tasks: Task[]): Set<number> {
       previousCriticalTaskIds = criticalTaskId !== null ? [criticalTaskId] : [];
       continue;
     }
-
-    // For this level, we find tasks that are dependencies of previous critical tasks
     const candidates = tasksAtLevel.filter(task =>
       previousCriticalTaskIds.some(critId =>
         tasks.find(t => t.id === critId)?.dependencies.includes(task.id)
       )
     );
-
     if (candidates.length === 0) {
-      // No dependencies of previous critical nodes, pick max earliest start date over all at this level
       let maxES = new Date(0);
       let criticalTaskId: number | null = null;
       for (const task of tasksAtLevel) {
@@ -167,8 +158,6 @@ function computeCriticalPath(tasks: Task[]): Set<number> {
       previousCriticalTaskIds = criticalTaskId !== null ? [criticalTaskId] : [];
       continue;
     }
-
-    // Among candidates, pick the one with latest earliest start date
     let maxES = new Date(0);
     let criticalTaskId: number | null = null;
     for (const task of candidates) {
@@ -180,7 +169,6 @@ function computeCriticalPath(tasks: Task[]): Set<number> {
     if (criticalTaskId !== null) criticalPath.add(criticalTaskId);
     previousCriticalTaskIds = criticalTaskId !== null ? [criticalTaskId] : [];
   }
-
   return criticalPath;
 }
 
@@ -223,7 +211,6 @@ export default function Home() {
       const res = await fetch("/api/todos");
       const data: Task[] = await res.json();
       const tasksNoRedundant = computeTransitiveReduction(data);
-
       const rootTasks = tasksNoRedundant.filter(t => !t.dependencies || t.dependencies.length === 0);
       const dueDates = rootTasks
         .map(t => t.dueDate)
@@ -233,22 +220,16 @@ export default function Home() {
         dueDates.length > 0
           ? new Date(Math.min(...dueDates.map(d => d.getTime())))
           : new Date();
-
       const earliestStartMap = calculateEarliestStartDates(tasksNoRedundant, projectStartDate);
-
       const enrichedTasks = tasksNoRedundant.map(t => ({
         ...t,
         earliestStartDate: earliestStartMap.get(t.id),
       }));
-
-      // Compute critical path by levels with new logic
       const criticalSet = computeCriticalPath(enrichedTasks);
-
       const finalTasks = enrichedTasks.map(t => ({
         ...t,
         onCriticalPath: criticalSet.has(t.id),
       }));
-
       setTodos(finalTasks);
     } catch (error) {
       console.error("Failed to fetch todos:", error);
@@ -257,7 +238,6 @@ export default function Home() {
 
   const handleAddTodo = async () => {
     if (!newTodo.trim()) return;
-
     const dueDateInput = newDueDate || null;
     const candidateId = todos.length > 0 ? Math.max(...todos.map(t => t.id)) + 1 : 1;
     const candidateTask: Task = {
@@ -267,7 +247,6 @@ export default function Home() {
       dependencies: newDependencies,
       durationDays: 1,
     };
-
     const tryTasks = computeTransitiveReduction([...todos, candidateTask]);
     const rootTasks = tryTasks.filter(t => !t.dependencies?.length);
     const rootDueDates = rootTasks
@@ -327,31 +306,34 @@ export default function Home() {
     }
   };
 
+  // Diagonal layout: each layer shifts right and up
   const layers = computeUpwardLayers(todos);
-
   const nodeMap = new Map<number, TaskNode>();
   let maxX = 0,
     maxY = 0;
 
-  Array.from(layers.entries())
-    .sort(([a], [b]) => a - b)
-    .forEach(([depth, layerTasks]) => {
-      layerTasks.forEach((task, i) => {
-        const x = canvasPaddingLeft + i * nodeGapX;
-        const y = canvasPaddingTop + depth * nodeGapY;
-        nodeMap.set(task.id, {
-          id: task.id,
-          title: task.title,
-          x,
-          y,
-          color: task.onCriticalPath ? "#fee2e2" : "#bde0fe",
-          critical: task.onCriticalPath,
-          earliestStartDate: task.earliestStartDate,
-        });
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
+  const layerEntries = Array.from(layers.entries()).sort(([a], [b]) => a - b);
+
+  layerEntries.forEach(([depth, layerTasks]) => {
+    layerTasks.forEach((task, idx) => {
+      // Diagonal layout: each layer moves right and up
+      const x = canvasPaddingLeft + (depth * layerOffsetX) + (idx * nodeGapX);
+      const y = canvasPaddingTop + (depth * nodeGapY);
+
+      nodeMap.set(task.id, {
+        id: task.id,
+        title: task.title,
+        x,
+        y,
+        color: task.onCriticalPath ? "#fee2e2" : "#bde0fe",
+        critical: task.onCriticalPath,
+        earliestStartDate: task.earliestStartDate,
       });
+
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
     });
+  });
 
   const nodes = Array.from(nodeMap.values());
   const nodeLookup = new Map(nodes.map(n => [n.id, n]));
@@ -361,20 +343,17 @@ export default function Home() {
       const source = nodeLookup.get(depId);
       const target = nodeLookup.get(t.id);
       if (source && target) {
-        const isCriticalLink = source.critical && target.critical;
         links.push({
           source,
           target,
-          dashed: isCriticalLink,
+          dashed: source.critical && target.critical,
         });
       }
     });
   });
 
-  const svgWidth =
-    Math.max(780, ...nodes.map(n => n.x + nodeRadius)) + canvasPaddingLeft;
-  const svgHeight =
-    Math.max(400, ...nodes.map(n => n.y + nodeRadius)) + canvasPaddingTop;
+  const svgWidth = Math.max(780, ...nodes.map(n => n.x + nodeRadius)) + canvasPaddingLeft;
+  const svgHeight = Math.max(400, ...nodes.map(n => n.y + nodeRadius)) + canvasPaddingTop;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-orange-500 to-red-500 flex flex-col items-center justify-center p-4">
@@ -409,48 +388,51 @@ export default function Home() {
               </>
             )}
             linkComponent={({ link }) => {
-              // Calculate midpoint for arrow
               const { x: x1, y: y1 } = link.source;
               const { x: x2, y: y2 } = link.target;
-              const mx = (x1 + x2) / 2;
-              const my = (y1 + y2) / 2;
-              // Calculate angle of the line for proper arrowhead orientation
-              const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+
+              const dx = x2 - x1;
+              const dy = y2 - y1;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              const curveOffset = 70;
+
+              // Control point for the quadratic Bezier curve
+              const cx = x1 + dx / 2 + (dy / dist) * curveOffset;
+              const cy = y1 + dy / 2 - (dx / dist) * curveOffset;
+
+              const path = `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+
+              // Point along the curve at t = 0.95 for arrow placement
+              const t = 0.95;
+              const xt = (1 - t) * (1 - t) * x1 + 2 * (1 - t) * t * cx + t * t * x2;
+              const yt = (1 - t) * (1 - t) * y1 + 2 * (1 - t) * t * cy + t * t * y2;
+
+              // Derivative of the quadratic Bezier at t (tangent vector)
+              const dxdt = 2 * (1 - t) * (cx - x1) + 2 * t * (x2 - cx);
+              const dydt = 2 * (1 - t) * (cy - y1) + 2 * t * (y2 - cy);
+
+              // Angle to rotate the arrowhead
+              const angle = Math.atan2(dydt, dxdt) * (180 / Math.PI);
 
               return (
                 <>
-                  {/* Main line */}
-                  <line
-                    x1={x1}
-                    y1={y1}
-                    x2={x2}
-                    y2={y2}
+                  <path
+                    d={path}
+                    fill="none"
                     stroke={link.dashed ? "red" : "#999"}
                     strokeWidth={2}
-                    strokeDasharray={link.dashed ? "8,4" : undefined}
+                    strokeDasharray={link.dashed ? "8 4" : undefined}
                     strokeLinecap="round"
                   />
-                  {/* Arrowhead at midpoint */}
-                  <g transform={`translate(${mx},${my}) rotate(${angle})`}>
-                    <polygon
-                      points="0,-6 12,0 0,6"
-                      fill={link.dashed ? "red" : "#999"}
-                    />
+                  <g transform={`translate(${xt},${yt}) rotate(${angle})`}>
+                    <polygon points="0,-6 12,0 0,6" fill={link.dashed ? "red" : "#999"} />
                   </g>
                 </>
               );
             }}
           />
           <defs>
-            <marker
-              id="arrow"
-              markerWidth="10"
-              markerHeight="10"
-              refX="9"
-              refY="5"
-              orient="auto"
-              markerUnits="strokeWidth"
-            >
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L10,5 L0,10 L3,5 Z" fill="#999" />
             </marker>
           </defs>
@@ -488,7 +470,7 @@ export default function Home() {
               <div className="text-gray-500 text-sm">No tasks yet</div>
             )}
             {todos
-              .filter(t => !t.dueDate || new Date(t.dueDate) >= new Date()) // Only future date
+              .filter(t => !t.dueDate || new Date(t.dueDate) >= new Date())
               .map(task => (
                 <label key={task.id} className="cursor-pointer mb-1 flex items-center gap-2">
                   <input

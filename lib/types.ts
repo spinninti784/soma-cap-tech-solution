@@ -1,3 +1,5 @@
+// New interfaces to make implementation cleaner
+
 export interface Task {
   id: number;
   title: string;
@@ -5,11 +7,10 @@ export interface Task {
   dueDate?: string | null;
   imageUrl?: string | null;
   dependencies: number[];
-  earliestStartDate?: Date;  // Change from number to Date
+  earliestStartDate?: Date;  // Changed from number to Date
   onCriticalPath?: boolean;
 }
 
-// New interface to make implementation cleaner
 export interface Todo {
     id: number;
     title: string;
@@ -19,10 +20,5 @@ export interface Todo {
     durationDays: number;
     dependencies: number[];
     earliestStartDate?: Date;
-}
-
-export interface EdgeType {
-    path: string;
-    critical: boolean;
 }
 

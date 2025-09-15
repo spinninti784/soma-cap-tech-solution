@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { hasCycle } from '@/lib/graphUtils';
 
 interface Params {
   params: {
